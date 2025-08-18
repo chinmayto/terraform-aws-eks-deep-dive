@@ -1,5 +1,6 @@
 variable "common_tags" {}
 variable "naming_prefix" {}
+variable "cluster_name" {}
 
 variable "networking" {
   type = object({

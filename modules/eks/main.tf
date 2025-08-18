@@ -67,51 +67,22 @@ resource "aws_iam_openid_connect_provider" "eks_oidc_provider" {
 data "aws_eks_addon_version" "eks_addons" {
   for_each = var.addons
 
-  addon_name         = coalesce(each.value.name, each.key)
-  kubernetes_version = var.cluster_config.version
-  most_recent        = each.value.most_recent
+  addon_name         = each.value.name
+  kubernetes_version = aws_eks_cluster.eks-cluster.version
+  most_recent        = coalesce(each.value.most_recent, true)
 }
 
 resource "aws_eks_addon" "addons" {
-  for_each      = { for addon in var.addons : addon.name => addon }
-  cluster_name  = aws_eks_cluster.eks-cluster.id
-  addon_name    = each.value.name
-  addon_version = data.aws_eks_addon_version.eks_addons[each.key].version
-}
+  for_each = var.addons
 
-################################################################################
-## Tag Subnets for EKS for AWS Load Balancer Controller Functionality
-################################################################################
-# Tag each public subnet for EKS use
-resource "aws_ec2_tag" "eks_public_subnet_elb" {
-  for_each = toset(flatten(var.public_subnets_id))
+  cluster_name                = aws_eks_cluster.eks-cluster.name
+  addon_name                  = each.value.name
+  addon_version               = coalesce(each.value.version, data.aws_eks_addon_version.eks_addons[each.key].version)
+  resolve_conflicts_on_create = "OVERWRITE"
 
-  resource_id = each.value
-  key         = "kubernetes.io/role/elb"
-  value       = "1"
-}
+  tags = merge(var.common_tags, {
+    Name = "${var.naming_prefix}-addon-${each.value.name}"
+  })
 
-resource "aws_ec2_tag" "eks_public_subnet_cluster" {
-  for_each = toset(flatten(var.public_subnets_id))
-
-  resource_id = each.value
-  key         = "kubernetes.io/cluster/${var.cluster_config.name}"
-  value       = "shared"
-}
-
-# Tag each private subnet for EKS internal load balancer use
-resource "aws_ec2_tag" "eks_private_subnet_internal_elb" {
-  for_each = toset(flatten(var.private_subnets_id))
-
-  resource_id = each.value
-  key         = "kubernetes.io/role/internal-elb"
-  value       = "1"
-}
-
-resource "aws_ec2_tag" "eks_private_subnet_cluster" {
-  for_each = toset(flatten(var.private_subnets_id))
-
-  resource_id = each.value
-  key         = "kubernetes.io/cluster/${var.cluster_config.name}"
-  value       = "shared"
+  depends_on = [aws_eks_node_group.node-ec2]
 }
