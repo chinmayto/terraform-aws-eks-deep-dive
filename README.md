@@ -1,4 +1,4 @@
-# Building an Amazon EKS Cluster from Scratch with Terraform
+# Building an Amazon EKS Cluster with raw Terraform Resources
 
 Most guides for provisioning Amazon EKS use the AWS community Terraform module for convenience. While this is great for speed, it often abstracts away what’s actually happening behind the scenes.
 
@@ -17,7 +17,7 @@ Here’s how the setup works at a high level:
 - EKS control plane (managed by AWS) communicates with the worker nodes securely within the VPC.
 This setup ensures that your nodes are not directly exposed to the internet while still having outbound internet access via the NAT gateway.
 
-![alt text](image-1.png)
+![alt text](/images/Architecture.png)
 
 ## Step 1: Create a VPC with Public and Private Subnets
 
@@ -155,7 +155,7 @@ resource "aws_route_table_association" "assoc_private_routes" {
 ################################################################################
 resource "aws_security_group" "sec_groups" {
   for_each    = { for sec in var.security_groups : sec.name => sec }
-  name        = each.value.name
+  name        = "${var.naming_prefix}-${each.value.name}"
   description = each.value.description
   vpc_id      = aws_vpc.custom_vpc.id
 
@@ -197,7 +197,7 @@ EKS needs roles for both the control plane and worker nodes.
 # EKS CLUSTER ROLE
 ################################################################################
 resource "aws_iam_role" "EKSClusterRole" {
-  name = "EKSClusterRole"
+  name = "${var.naming_prefix}-EKSClusterRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -224,7 +224,7 @@ resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
 # NODE GROUP ROLE
 ################################################################################
 resource "aws_iam_role" "NodeGroupRole" {
-  name = "EKSNodeGroupRole"
+  name = "${var.naming_prefix}-EKSNodeGroupRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -294,7 +294,7 @@ At this point, we create a managed set of EC2 worker nodes with basic required a
 resource "aws_eks_node_group" "node-ec2" {
   for_each        = { for node_group in var.node_groups : node_group.name => node_group }
   cluster_name    = aws_eks_cluster.eks-cluster.name
-  node_group_name = each.value.name
+  node_group_name = "${var.naming_prefix}-${each.value.name}"
   node_role_arn   = aws_iam_role.NodeGroupRole.arn
   subnet_ids      = flatten(var.private_subnets_id)
 
@@ -367,7 +367,7 @@ resource "aws_eks_addon" "addons" {
 ################################################################################
 resource "null_resource" "update_kubeconfig" {
   provisioner "local-exec" {
-    command = "aws eks --region us-east-1 update-kubeconfig --name ${var.cluster_config.name}"
+    command = "aws eks --region ${var.aws_region} update-kubeconfig --name ${var.cluster_config.name}"
   }
   depends_on = [module.eks]
 }
@@ -384,13 +384,38 @@ We will deploy famous exmaple voting app from the https://github.com/dockersampl
 - A Postgres database backed by a Docker volume
 - A Node.js web app which shows the results of the voting in real time
 
-![alt text](image.png)
+Note: The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
+
+![alt text](/images/ExampleVotingApp.png)
 
 Apply the manifests and verify
 ```bash
 cd /example-voting-app/k8s-specifications
 kubectl apply -f .
+deployment.apps/db created
+service/db created
+deployment.apps/redis created
+service/redis created
+deployment.apps/result created
+service/result created
+deployment.apps/vote created
+service/vote created
+deployment.apps/worker created
+
+
+kubectl port-forward service/vote 8080:8080
+kubectl port-forward service/result 8081:8081
 ```
+
+Access app using:
+```bash
+Vote:   http://localhost:8080
+Result: http://localhost:8081
+```
+
+![alt text](/images/vote-app.png)
+
+![alt text](/images/result-app.png)
 
 ## Cleanup
 
@@ -400,7 +425,7 @@ cd /example-voting-app/k8s-specifications
 kubectl delete -f .
 ```
 
-And then terraform destroy the EKS infrastructure if you are not using it to save costs.
+And then `terraform destroy` the EKS infrastructure if you are not using it to save costs.
 
 ## Conclusion
 
