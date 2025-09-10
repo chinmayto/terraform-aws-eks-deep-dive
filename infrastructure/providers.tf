@@ -16,7 +16,7 @@ terraform {
 
   backend "s3" {
     bucket                     = "chinmayto-terraform-state-bucket-1755526674"
-    key                        = "eks-cluster/terraform.tfstate"
+    key                        = "eks-cluster-deep-dive/terraform.tfstate"
     region                     = "us-east-1"
     encrypt                    = true
     use_lockfile               = true
