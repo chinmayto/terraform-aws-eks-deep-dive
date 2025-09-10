@@ -101,17 +101,3 @@ variable "security_groups" {
     ]
   }]
 }
-
-variable "domain_config" {
-  type = object({
-    domain_name          = string
-    prometheus_subdomain = string
-    grafana_subdomain    = string
-  })
-  description = "Domain configuration for SSL certificates and DNS records"
-  default = {
-    domain_name          = "chinmayto.com"
-    prometheus_subdomain = "prometheus.chinmayto.com"
-    grafana_subdomain    = "grafana.chinmayto.com"
-  }
-}

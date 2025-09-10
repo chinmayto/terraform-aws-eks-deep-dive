@@ -33,6 +33,7 @@ resource "null_resource" "update_kubeconfig" {
   depends_on = [module.eks]
 }
 
+/*
 ################################################################################
 # Create ingress-nginx namespace
 ################################################################################
@@ -80,7 +81,7 @@ resource "helm_release" "nginx_ingress" {
 }
 
 ################################################################################
-# Get Load Balancer information for ACM module
+# Get the NLB hostname from nginx ingress controller
 ################################################################################
 data "kubernetes_service" "nginx_ingress_controller" {
   metadata {
@@ -91,93 +92,42 @@ data "kubernetes_service" "nginx_ingress_controller" {
 }
 
 ################################################################################
-# Create ACM Certificate and DNS records
+# Get Route53 hosted zone for chinmayto.com
 ################################################################################
-module "acm" {
-  source = "./modules/acm"
+data "aws_route53_zone" "main" {
+  name         = "chinmayto.com"
+  private_zone = false
+}
 
-  domain_name = var.domain_config.domain_name
-  subject_alternative_names = [
-    "*.${var.domain_config.domain_name}",
-    var.domain_config.prometheus_subdomain,
-    var.domain_config.grafana_subdomain
-  ]
+################################################################################
+# Create Route53 A records for Prometheus and Grafana
+################################################################################
+resource "aws_route53_record" "prometheus" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "prometheus.chinmayto.com"
+  type    = "A"
 
-  prometheus_subdomain = var.domain_config.prometheus_subdomain
-  grafana_subdomain    = var.domain_config.grafana_subdomain
-
-  load_balancer_dns_name = data.kubernetes_service.nginx_ingress_controller.status.0.load_balancer.0.ingress.0.hostname
-  load_balancer_zone_id  = "Z26RNL4JYFTOTI" # NLB zone ID for us-east-1
-
-  common_tags   = local.common_tags
-  naming_prefix = local.naming_prefix
+  alias {
+    name                   = data.kubernetes_service.nginx_ingress_controller.status.0.load_balancer.0.ingress.0.hostname
+    zone_id                = "Z26RNL4JYFTOTI" # NLB zone ID for us-east-1
+    evaluate_target_health = true
+  }
 
   depends_on = [helm_release.nginx_ingress]
 }
 
-################################################################################
-# Create cert-manager namespace
-################################################################################
-resource "kubernetes_namespace" "cert_manager" {
-  metadata {
-    name = "cert-manager"
-    labels = {
-      name = "cert-manager"
-    }
-  }
-  depends_on = [module.eks]
-}
+resource "aws_route53_record" "grafana" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "grafana.chinmayto.com"
+  type    = "A"
 
-################################################################################
-# Install cert-manager using Helm
-################################################################################
-resource "helm_release" "cert_manager" {
-  name       = "cert-manager"
-  repository = "https://charts.jetstack.io"
-  chart      = "cert-manager"
-  namespace  = kubernetes_namespace.cert_manager.metadata[0].name
-  version    = "v1.13.3"
-
-  set {
-    name  = "installCRDs"
-    value = "true"
+  alias {
+    name                   = data.kubernetes_service.nginx_ingress_controller.status.0.load_balancer.0.ingress.0.hostname
+    zone_id                = "Z26RNL4JYFTOTI" # NLB zone ID for us-east-1
+    evaluate_target_health = true
   }
 
-  depends_on = [kubernetes_namespace.cert_manager, module.acm]
-}
-
-################################################################################
-# Create ClusterIssuer for Let's Encrypt using kubectl
-################################################################################
-resource "null_resource" "letsencrypt_prod" {
-  provisioner "local-exec" {
-    interpreter = ["PowerShell", "-Command"]
-    command = <<-EOT
-      @"
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@${var.domain_config.domain_name}
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
-"@ | kubectl apply -f -
-    EOT
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kubectl delete clusterissuer letsencrypt-prod --ignore-not-found=true"
-  }
-
-  depends_on = [helm_release.cert_manager, null_resource.update_kubeconfig]
+  depends_on = [helm_release.nginx_ingress]
 }
 
 ################################################################################
@@ -208,19 +158,6 @@ resource "helm_release" "prometheus" {
       prometheus = {
         prometheusSpec = {
           retention = "30d"
-          storageSpec = {
-            volumeClaimTemplate = {
-              spec = {
-                storageClassName = "gp2"
-                accessModes      = ["ReadWriteOnce"]
-                resources = {
-                  requests = {
-                    storage = "50Gi"
-                  }
-                }
-              }
-            }
-          }
         }
         service = {
           type = "ClusterIP"
@@ -228,15 +165,10 @@ resource "helm_release" "prometheus" {
         ingress = {
           enabled          = true
           ingressClassName = "nginx"
-          hosts            = [var.domain_config.prometheus_subdomain]
+          hosts            = ["prometheus.chinmayto.com"]
           paths            = ["/"]
-          tls = [{
-            secretName = "prometheus-tls"
-            hosts      = [var.domain_config.prometheus_subdomain]
-          }]
           annotations = {
-            "cert-manager.io/cluster-issuer"           = "letsencrypt-prod"
-            "nginx.ingress.kubernetes.io/ssl-redirect" = "true"
+            "nginx.ingress.kubernetes.io/rewrite-target" = "/"
           }
         }
       }
@@ -249,80 +181,23 @@ resource "helm_release" "prometheus" {
         ingress = {
           enabled          = true
           ingressClassName = "nginx"
-          hosts            = [var.domain_config.grafana_subdomain]
+          hosts            = ["grafana.chinmayto.com"]
           path             = "/"
-          tls = [{
-            secretName = "grafana-tls"
-            hosts      = [var.domain_config.grafana_subdomain]
-          }]
           annotations = {
-            "cert-manager.io/cluster-issuer"           = "letsencrypt-prod"
-            "nginx.ingress.kubernetes.io/ssl-redirect" = "true"
+            "nginx.ingress.kubernetes.io/rewrite-target" = "/"
           }
         }
         persistence = {
-          enabled          = true
-          storageClassName = "gp2"
-          size             = "10Gi"
+          enabled = false
         }
       }
       alertmanager = {
         enabled = true
-        alertmanagerSpec = {
-          storage = {
-            volumeClaimTemplate = {
-              spec = {
-                storageClassName = "gp2"
-                accessModes      = ["ReadWriteOnce"]
-                resources = {
-                  requests = {
-                    storage = "10Gi"
-                  }
-                }
-              }
-            }
-          }
-        }
       }
     })
   ]
 
-  depends_on = [kubernetes_namespace.monitoring, helm_release.nginx_ingress, null_resource.letsencrypt_prod, module.acm]
+  depends_on = [kubernetes_namespace.monitoring, helm_release.nginx_ingress]
 }
 
-################################################################################
-# Update NGINX Ingress to enable ServiceMonitor after Prometheus is installed
-################################################################################
-resource "helm_release" "nginx_ingress_with_monitoring" {
-  name       = "ingress-nginx"
-  repository = "https://kubernetes.github.io/ingress-nginx"
-  chart      = "ingress-nginx"
-  namespace  = kubernetes_namespace.ingress_nginx.metadata[0].name
-  version    = "4.8.3"
-
-  values = [
-    yamlencode({
-      controller = {
-        service = {
-          type = "LoadBalancer"
-          annotations = {
-            "service.beta.kubernetes.io/aws-load-balancer-type"                              = "nlb"
-            "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled" = "true"
-          }
-        }
-        metrics = {
-          enabled = true
-          serviceMonitor = {
-            enabled = true
-            additionalLabels = {
-              release = "prometheus"
-            }
-          }
-        }
-      }
-    })
-  ]
-
-  depends_on = [helm_release.prometheus]
-}
-
+*/
