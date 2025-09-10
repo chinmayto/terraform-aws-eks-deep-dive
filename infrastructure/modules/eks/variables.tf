@@ -27,7 +27,7 @@ variable "node_groups" {
   }))
   default = [
     {
-      name           = "t3-medium-standard"
+      name           = "CT-EKS-Cluster-Node-Group"
       instance_types = ["t3.medium"]
       ami_type       = "AL2023_x86_64_STANDARD"
       capacity_type  = "ON_DEMAND"
@@ -64,14 +64,6 @@ variable "addons" {
     }
     coredns = {
       name        = "coredns"
-      most_recent = true
-    }
-    aws-ebs-csi-driver = {
-      name        = "aws-ebs-csi-driver"
-      most_recent = true
-    }
-    aws-efs-csi-driver = {
-      name        = "aws-efs-csi-driver"
       most_recent = true
     }
   }
