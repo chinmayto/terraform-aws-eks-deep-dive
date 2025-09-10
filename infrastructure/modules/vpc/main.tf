@@ -126,7 +126,7 @@ resource "aws_route_table_association" "assoc_private_routes" {
 ################################################################################
 resource "aws_security_group" "sec_groups" {
   for_each    = { for sec in var.security_groups : sec.name => sec }
-  name        = each.value.name
+  name        = "${var.naming_prefix}-${each.value.name}"
   description = each.value.description
   vpc_id      = aws_vpc.custom_vpc.id
 

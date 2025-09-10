@@ -2,7 +2,7 @@
 # EKS CLUSTER ROLE
 ################################################################################
 resource "aws_iam_role" "EKSClusterRole" {
-  name = "EKSClusterRole"
+  name = "${var.naming_prefix}-EKSClusterRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -17,7 +17,9 @@ resource "aws_iam_role" "EKSClusterRole" {
   })
 }
 
-//This policy provides Kubernetes the permissions it requires to manage resources on your behalf. Kubernetes requires Ec2:CreateTags permissions to place identifying information on EC2 resources including but not limited to Instances, Security Groups, and Elastic Network Interfaces
+// This policy provides Kubernetes the permissions it requires to manage resources on your behalf. 
+// Kubernetes requires Ec2:CreateTags permissions to place identifying information on EC2 resources
+// including but not limited to Instances, Security Groups, and Elastic Network Interfaces
 resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
   role       = aws_iam_role.EKSClusterRole.name
@@ -27,7 +29,7 @@ resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
 # NODE GROUP ROLE
 ################################################################################
 resource "aws_iam_role" "NodeGroupRole" {
-  name = "EKSNodeGroupRole"
+  name = "${var.naming_prefix}-EKSNodeGroupRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -54,7 +56,9 @@ resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
   role       = aws_iam_role.NodeGroupRole.name
 }
 
-// This policy provides the Amazon VPC CNI Plugin (amazon-vpc-cni-k8s) the permissions it requires to modify the IP address configuration on your EKS worker nodes. This permission set allows the CNI to list, describe, and modify Elastic Network Interfaces on your behalf
+// This policy provides the Amazon VPC CNI Plugin (amazon-vpc-cni-k8s) the permissions
+// it requires to modify the IP address configuration on your EKS worker nodes. 
+// This permission set allows the CNI to list, describe, and modify ENIs on your behalf
 resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role       = aws_iam_role.NodeGroupRole.name
